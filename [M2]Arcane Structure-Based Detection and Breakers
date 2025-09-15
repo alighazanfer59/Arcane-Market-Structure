@@ -1,0 +1,286 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © PidePython 
+
+//@version=6
+indicator('[M2]Arcane Structure-Based Detection and Breakers', 
+     overlay = true, 
+     max_labels_count = 500,
+     max_boxes_count = 500)
+//-----------------------------------------------------------------------------}
+// ARCANE QSH/QSL DETECTION
+//-----------------------------------------------------------------------------{
+
+// Define bullish/bearish candles
+isBullish = close > open
+isBearish = close < open
+
+// Track the last identified swing (0 = none, 1 = QSH, -1 = QSL)
+var int lastSwing = 0
+
+// Identify expansion legs (at least 2 consecutive candles of same type)
+bullishExpansionLeg = ta.barssince(not isBullish) >= 2 and lastSwing != 1
+bearishExpansionLeg = ta.barssince(not isBearish) >= 2 and lastSwing != -1
+
+// Arrays to store the last two QSH and QSL events
+var qshArray = array.new<float>(0)  
+var qslArray = array.new<float>(0) 
+var qshBarArray = array.new<int>(0)  
+var qslBarArray = array.new<int>(0)
+
+// QSH Identification
+var bool qshPossible = false
+var float qshExpansionLine = na
+var float qshCorrectionLine = na
+var int qshBar = na
+var float qshHigh = na
+var bool qshConfirmed = false
+var bool qslConfirmed = false
+
+if (bullishExpansionLeg[1] or qslConfirmed[1]) and isBearish
+    qshPossible := true
+    qshExpansionLine := na(qshExpansionLine) ? math.max(high[1], high[0]) : math.max(high[1], high[0], qshExpansionLine)
+    qshCorrectionLine := math.max(low, nz(qshCorrectionLine)) // correction line will return zero if current value is na
+    qshBar := na(qshBar) ? high > high[1] ? bar_index : bar_index - 1 : qshBar
+    qshHigh := high[bar_index - qshBar]
+    qshHigh
+
+if qshPossible and high > qshExpansionLine and isBullish
+    qshExpansionLine := high
+    bullishExpansionLeg := true
+    qshBar := bar_index
+    qshHigh := high
+    qshHigh
+
+qshConfirmed := qshPossible and low < qshCorrectionLine and lastSwing != 1 and isBearish
+
+if qshConfirmed
+    lastSwing := 1
+    qshPossible := false
+    qshCorrectionLine := na
+    qshExpansionLine := na
+    label.new(qshBar, qshHigh * 1.00005, 'QSH', color = color.red, style = label.style_label_down, size = size.tiny)
+    array.unshift(qshArray, qshHigh)
+    array.unshift(qshBarArray, qshBar)
+    qshBar := na
+    qshHigh := na
+    qshHigh
+
+// QSL Identification
+var bool qslPossible = false
+var float qslExpansionLine = na
+var float qslCorrectionLine = na
+var int qslBar = na
+var float qslLow = na
+
+if (bearishExpansionLeg[1] or qshConfirmed[1]) and (isBullish or close == open)
+    qslPossible := true
+    qslExpansionLine := na(qslExpansionLine) ? math.min(low[1], low[0]) : math.min(low[1], low[0], qslExpansionLine)
+    qslCorrectionLine := na(qslCorrectionLine) ? high : math.min(high, qslCorrectionLine)
+    qslBar := na(qslBar) ? low < low[1] ? bar_index : bar_index - 1 : qslBar
+    qslLow := low[bar_index - qslBar]
+    qslLow
+
+if qslPossible and low < qslExpansionLine and isBearish
+    qslExpansionLine := low
+    bearishExpansionLeg := true
+    qslBar := bar_index
+    qslLow := low
+    qslLow
+
+qslConfirmed := qslPossible and high > qslCorrectionLine and lastSwing != -1 and isBullish
+
+if qslConfirmed
+    lastSwing := -1
+    qslPossible := false
+    qslCorrectionLine := na
+    qslExpansionLine := na
+    label.new(qslBar, qslLow * 0.99995, 'QSL', color = color.green, style = label.style_label_up, size = size.tiny)
+    array.unshift(qslArray, qslLow)
+    array.unshift(qslBarArray, qslBar)
+    qslBar := na
+    qslLow := na
+    qslLow
+
+// Plotting
+plotshape(qshConfirmed, style = shape.triangledown, color = color.red, location = location.abovebar, size = size.tiny, title = 'QSH')
+plotshape(qslConfirmed, style = shape.triangleup, color = color.green, location = location.belowbar, size = size.tiny, title = 'QSL')
+
+
+// User inputs for lines visibility and colors
+showQSHExpansion = input.bool(false, 'Show QSH Expansion Line', group = 'Line Visibility')
+showQSHCorrection = input.bool(false, 'Show QSH Correction Line', group = 'Line Visibility')
+showQSLExpansion = input.bool(false, 'Show QSL Expansion Line', group = 'Line Visibility')
+showQSLCorrection = input.bool(false, 'Show QSL Correction Line', group = 'Line Visibility')
+
+qshExpansionColor = input.color(color.blue, 'QSH Expansion Line Color', group = 'QSH Line Colors')
+qshCorrectionColor = input.color(color.red, 'QSH Correction Line Color', group = 'QSH Line Colors')
+qslExpansionColor = input.color(color.green, 'QSL Expansion Line Color', group = 'QSL Line Colors')
+qslCorrectionColor = input.color(color.orange, 'QSL Correction Line Color', group = 'QSL Line Colors')
+
+// Plot expansion and correction lines with individual visibility control
+plot(showQSHExpansion and qshPossible ? qshExpansionLine : na, color = qshExpansionColor, linewidth = 2, title = 'QSH Expansion Line', style = plot.style_steplinebr)
+plot(showQSHCorrection and qshPossible ? qshCorrectionLine : na, color = qshCorrectionColor, linewidth = 1, title = 'QSH Correction Line', style = plot.style_steplinebr)
+plot(showQSLExpansion and qslPossible ? qslExpansionLine : na, color = qslExpansionColor, linewidth = 2, title = 'QSL Expansion Line', style = plot.style_steplinebr)
+plot(showQSLCorrection and qslPossible ? qslCorrectionLine : na, color = qslCorrectionColor, linewidth = 1, title = 'QSL Correction Line', style = plot.style_steplinebr)
+
+//-----------------------------------------------------------------------------}
+// UNICORN BREAKER DETECTION
+//-----------------------------------------------------------------------------{
+// Determine which leg we're in based on the most recent swing
+var bool inBullishLeg = false
+var bool inBearishLeg = false
+
+if array.size(qshBarArray) >= 1 and array.size(qslBarArray) >= 1
+    lastQSHBar = array.get(qshBarArray, 0)
+    lastQSLBar = array.get(qslBarArray, 0)
+    
+    // Update leg status
+    inBullishLeg := lastQSLBar > lastQSHBar
+    inBearishLeg := lastQSHBar > lastQSLBar
+
+// Bullish Unicorn Breaker (B+UBRK) Detection - only in bullish leg
+var bool bullishUB = false
+var bool bearishUB = false
+
+var int bullishUBBar = na
+var float bullishUBPrice = na
+
+if inBullishLeg and array.size(qshArray) >= 1 and array.size(qslArray) >= 2
+    // Reset the UB breakers
+    bullishUB := false
+    bearishUB := false
+    
+    // Get the last QSH
+    lastQSH = array.get(qshArray, 0)
+    lastQSHBar = array.get(qshBarArray, 0)
+
+    // Get the last two QSLs
+    lastQSL = array.get(qslArray, 0)
+    lastQSLBar = array.get(qslBarArray, 0)
+    secondLastQSL = array.get(qslArray, 1)
+    
+    // Check if current candle breaks the last QSH with a body (close above QSH)
+    breaksQSH = open < lastQSH and close > lastQSH
+    
+    // Check if the last QSL is lower than the second last QSL
+    lowerQSL = lastQSL < secondLastQSL
+
+    // Check for bearish FVG between QSH and QSL bars
+    hasBearishFVG = false
+    if breaksQSH and lowerQSL
+        // Calculate the number of bars between QSH and QSL
+        barDiff = lastQSLBar - lastQSHBar
+        if barDiff > 0
+            for i = 0 to barDiff - 1
+                currentBar = lastQSHBar + i
+                barsAgo = bar_index - currentBar
+                
+                // Check for bearish FVG at this bar
+                if high[barsAgo] < low[barsAgo+2] and close[barsAgo+1] < low[barsAgo+2] and 
+                   (low[barsAgo+2] - high[barsAgo]) / high[barsAgo] > 0 //thresholdPer/100
+                    hasBearishFVG := true
+                    break
+    
+    if breaksQSH and lowerQSL and hasBearishFVG
+        bullishUB := true
+        bullishUBBar := bar_index
+        // Draw line from last QSH to breaker candle
+
+        line.new(lastQSHBar, lastQSH, bullishUBBar, lastQSH, 
+                                 color=color.black, width=2, style=line.style_solid)
+       
+        // Calculate midpoint for label
+        midBar = (lastQSHBar + bullishUBBar) / 2
+        
+        label.new(midBar, lastQSH, "U+BRK", 
+                                 color=color.white, style=label.style_label_center, 
+                                 textcolor=color.black, size=size.normal)
+
+// Bearish Unicorn Breaker (B-UBRK) Detection - only in bearish leg
+var int bearishUBBar = na
+var float bearishUBPrice = na
+
+if inBearishLeg and array.size(qslArray) >= 1 and array.size(qshArray) >= 2
+    // Reset the UB breakers
+    bullishUB := false
+    bearishUB := false
+    
+    // Get the last QSL
+    lastQSL = array.get(qslArray, 0)
+    lastQSLBar = array.get(qslBarArray, 0)
+    
+    // Get the last two QSHs
+    lastQSH = array.get(qshArray, 0)
+    lastQSHBar = array.get(qshBarArray, 0)
+    secondLastQSH = array.get(qshArray, 1)
+    
+    // Check if current candle breaks the last QSL with a body (close below QSL)
+    breaksQSL = open > lastQSL and close < lastQSL
+    
+    // Check if the last QSH is higher than the second last QSH
+    higherQSH = lastQSH > secondLastQSH
+    
+    // Check for bullish FVG between QSL and QSH bars
+    hasBullishFVG = false
+    if breaksQSL and higherQSH
+        // Calculate the number of bars between QSL and QSH
+        barDiff = lastQSHBar - lastQSLBar
+        if barDiff > 0
+            for i = 0 to barDiff - 1
+                currentBar = lastQSLBar + i
+                barsAgo = bar_index - currentBar
+                
+                // Check for bullish FVG at this bar
+                if low[barsAgo] > high[barsAgo+2] and close[barsAgo+1] > high[barsAgo+2] and 
+                   (low[barsAgo] - high[barsAgo+2]) / high[barsAgo+2] > 0 //thresholdPer/100
+                    hasBullishFVG := true
+                    break
+    
+    if breaksQSL and higherQSH and hasBullishFVG
+        bearishUB := true
+        bearishUBBar := bar_index
+
+        line.new(lastQSLBar, lastQSL, bearishUBBar, lastQSL, 
+                                 color=color.black, width=2, style=line.style_solid)
+       
+        // Calculate midpoint for label
+        midBar = (lastQSLBar + bearishUBBar) / 2
+        
+        label.new(midBar, lastQSL, "U-BRK", 
+                                 color=color.white, style=label.style_label_center, 
+                                 textcolor=color.black, size=size.normal)
+
+// Plot Unicorn Breaker signals
+plotshape(bullishUB, style=shape.arrowup, color=color.green, location=location.belowbar, 
+         size=size.small, title="Bullish Unicorn Breaker", text="U+BRK")
+plotshape(bearishUB, style=shape.arrowdown, color=color.red, location=location.abovebar, 
+         size=size.small, title="Bearish Unicorn Breaker", text="U-BRK")
+
+
+// Debug variable - just track last QSH
+// var float lastQSHValue = na
+
+// if array.size(qshArray) >= 1
+//     lastQSHValue := array.get(qshArray, 0)
+// Display last QSH value in data window using a plot with display=display.data_window
+// plotchar(bullishUB, "bullishUB"," ", color=color(na), display=display.data_window)
+
+// Debug variable - just track last QSH
+// var int qshArraySize  = na
+
+// if array.size(qshArray) >= 1
+//     qshArraySize := array.size(qshArray)
+
+// plotchar(qshArraySize, 'qshArraySize', '')
+
+
+//Debugging and troubleshooting
+// plotshape((bullishExpansionLeg[1] or qslConfirmed[1]) and isBearish, "bullishExpansionLeg")
+// plotchar(qslBar, 'qslBar', ' ')
+// plotchar(qslLow, 'qslLow', ' ')
+// plotchar(bar_index, 'bar_index', ' ')
+// plotchar(qshBar, 'qshBar', ' ')
+// plotchar(qshHigh, 'qshHigh', ' ')
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © boitoki
+
