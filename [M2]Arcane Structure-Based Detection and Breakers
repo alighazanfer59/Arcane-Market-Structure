@@ -145,9 +145,12 @@ var bool bearishUB = false
 var int bullishUBBar = na
 var float bullishUBPrice = na
 
-if inBullishLeg and array.size(qshArray) >= 1 and array.size(qslArray) >= 2
+var bool hasBearishFVG = false // Debug
+var int bearishFVG_bar = na
+
+if inBullishLeg and array.size(qshArray) >= 2 and array.size(qslArray) >= 2
     // Reset the UB breakers
-    bullishUB := false
+    // bullishUB := false
     bearishUB := false
     
     // Get the last QSH
@@ -160,18 +163,18 @@ if inBullishLeg and array.size(qshArray) >= 1 and array.size(qslArray) >= 2
     secondLastQSL = array.get(qslArray, 1)
     
     // Check if current candle breaks the last QSH with a body (close above QSH)
-    breaksQSH = open < lastQSH and close > lastQSH
+    breaksQSH = close > lastQSH and isBullish
     
     // Check if the last QSL is lower than the second last QSL
     lowerQSL = lastQSL < secondLastQSL
 
     // Check for bearish FVG between QSH and QSL bars
-    hasBearishFVG = false
+    hasBearishFVG := false
     if breaksQSH and lowerQSL
         // Calculate the number of bars between QSH and QSL
         barDiff = lastQSLBar - lastQSHBar
         if barDiff > 0
-            for i = 0 to barDiff - 1
+            for i = 0 to barDiff
                 currentBar = lastQSHBar + i
                 barsAgo = bar_index - currentBar
                 
@@ -179,54 +182,60 @@ if inBullishLeg and array.size(qshArray) >= 1 and array.size(qslArray) >= 2
                 if high[barsAgo] < low[barsAgo+2] and close[barsAgo+1] < low[barsAgo+2] and 
                    (low[barsAgo+2] - high[barsAgo]) / high[barsAgo] > 0 //thresholdPer/100
                     hasBearishFVG := true
+                    bearishFVG_bar := bar_index - barsAgo
                     break
-    
+
     if breaksQSH and lowerQSL and hasBearishFVG
         bullishUB := true
         bullishUBBar := bar_index
         // Draw line from last QSH to breaker candle
-
-        line.new(lastQSHBar, lastQSH, bullishUBBar, lastQSH, 
-                                 color=color.black, width=2, style=line.style_solid)
-       
-        // Calculate midpoint for label
-        midBar = (lastQSHBar + bullishUBBar) / 2
+        if not bullishUB[1]
+            line.new(lastQSHBar, lastQSH, bullishUBBar, lastQSH, 
+                         color=color.black, width=2, style=line.style_solid)
         
-        label.new(midBar, lastQSH, "U+BRK", 
-                                 color=color.white, style=label.style_label_center, 
-                                 textcolor=color.black, size=size.normal)
+            // Calculate midpoint for label
+            midBar = (lastQSHBar + bullishUBBar) / 2
+            
+            label.new(midBar, lastQSH, "U+BRK", 
+                         color=color.white, style=label.style_label_center, 
+                         textcolor=color.black, size=size.normal)
 
 // Bearish Unicorn Breaker (B-UBRK) Detection - only in bearish leg
 var int bearishUBBar = na
 var float bearishUBPrice = na
 
-if inBearishLeg and array.size(qslArray) >= 1 and array.size(qshArray) >= 2
+var bool hasBullishFVG = false // Debug
+var int lastQSHBar = na
+var int lastQSLBar = na
+
+
+if inBearishLeg and array.size(qslArray) >= 2 and array.size(qshArray) >= 2
     // Reset the UB breakers
     bullishUB := false
-    bearishUB := false
+    // bearishUB := false
     
     // Get the last QSL
     lastQSL = array.get(qslArray, 0)
-    lastQSLBar = array.get(qslBarArray, 0)
+    lastQSLBar := array.get(qslBarArray, 0)
     
     // Get the last two QSHs
     lastQSH = array.get(qshArray, 0)
-    lastQSHBar = array.get(qshBarArray, 0)
+    lastQSHBar := array.get(qshBarArray, 0)
     secondLastQSH = array.get(qshArray, 1)
     
     // Check if current candle breaks the last QSL with a body (close below QSL)
-    breaksQSL = open > lastQSL and close < lastQSL
+    breaksQSL = close < lastQSL and isBearish
     
     // Check if the last QSH is higher than the second last QSH
     higherQSH = lastQSH > secondLastQSH
     
     // Check for bullish FVG between QSL and QSH bars
-    hasBullishFVG = false
+    hasBullishFVG := false
     if breaksQSL and higherQSH
         // Calculate the number of bars between QSL and QSH
         barDiff = lastQSHBar - lastQSLBar
         if barDiff > 0
-            for i = 0 to barDiff - 1
+            for i = 0 to barDiff
                 currentBar = lastQSLBar + i
                 barsAgo = bar_index - currentBar
                 
@@ -239,48 +248,65 @@ if inBearishLeg and array.size(qslArray) >= 1 and array.size(qshArray) >= 2
     if breaksQSL and higherQSH and hasBullishFVG
         bearishUB := true
         bearishUBBar := bar_index
-
-        line.new(lastQSLBar, lastQSL, bearishUBBar, lastQSL, 
+        if not bearishUB[1]
+            line.new(lastQSLBar, lastQSL, bearishUBBar, lastQSL, 
                                  color=color.black, width=2, style=line.style_solid)
-       
-        // Calculate midpoint for label
-        midBar = (lastQSLBar + bearishUBBar) / 2
-        
-        label.new(midBar, lastQSL, "U-BRK", 
-                                 color=color.white, style=label.style_label_center, 
-                                 textcolor=color.black, size=size.normal)
+            // Calculate midpoint for label
+            midBar = (lastQSLBar + bearishUBBar) / 2
+            
+            label.new(midBar, lastQSL, "U-BRK", 
+                     color=color.white, style=label.style_label_center, 
+                     textcolor=color.black, size=size.normal)
 
 // Plot Unicorn Breaker signals
-plotshape(bullishUB, style=shape.arrowup, color=color.green, location=location.belowbar, 
+plotshape(bullishUB and not bullishUB[1], style=shape.arrowup, color=color.green, location=location.belowbar, 
          size=size.small, title="Bullish Unicorn Breaker", text="U+BRK")
-plotshape(bearishUB, style=shape.arrowdown, color=color.red, location=location.abovebar, 
+plotshape(bearishUB and not bearishUB[1], style=shape.arrowdown, color=color.red, location=location.abovebar, 
          size=size.small, title="Bearish Unicorn Breaker", text="U-BRK")
 
 
 // Debug variable - just track last QSH
-// var float lastQSHValue = na
+// var int lastQSHBar  = na
 
-// if array.size(qshArray) >= 1
-//     lastQSHValue := array.get(qshArray, 0)
-// Display last QSH value in data window using a plot with display=display.data_window
-// plotchar(bullishUB, "bullishUB"," ", color=color(na), display=display.data_window)
+if array.size(qshBarArray) >= 1
+    lastQSHBar := array.get(qshBarArray, 0)
+
+plotchar(lastQSHBar, 'lastQSHBar', ' ')
 
 // Debug variable - just track last QSH
-// var int qshArraySize  = na
+// var int lastQSLBar  = na
 
-// if array.size(qshArray) >= 1
-//     qshArraySize := array.size(qshArray)
+if array.size(qslBarArray) >= 1
+    lastQSLBar := array.get(qslBarArray, 0)
 
-// plotchar(qshArraySize, 'qshArraySize', '')
+plotchar(lastQSLBar, 'lastQSLBar', ' ')
+
+// testBearishFVG = false
+    // Calculate the number of bars between QSH and QSL
+// barDiff = lastQSLBar - lastQSHBar
+// if barDiff > 0
+//     for i = 0 to barDiff - 1
+//         currentBar = lastQSHBar + i
+//         barsAgo = bar_index - currentBar
+        
+        // Check for bearish FVG at this bar
+// if high[6] < low[8] and close[7] < low[8] and 
+//          (low[8] - high[6]) / high[6] > 0 //thresholdPer/100
+//     testBearishFVG := true
+    // break
+
+plotchar(hasBullishFVG, 'hasBullishFVG', ' ')
+plotchar(hasBearishFVG, 'hasBearishFVG', ' ')
+plotchar(bearishFVG_bar, 'bearishFVG_bar', ' ')
 
 
 //Debugging and troubleshooting
 // plotshape((bullishExpansionLeg[1] or qslConfirmed[1]) and isBearish, "bullishExpansionLeg")
 // plotchar(qslBar, 'qslBar', ' ')
 // plotchar(qslLow, 'qslLow', ' ')
-// plotchar(bar_index, 'bar_index', ' ')
+plotchar(bar_index, 'bar_index', ' ')
 // plotchar(qshBar, 'qshBar', ' ')
-// plotchar(qshHigh, 'qshHigh', ' ')
-// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © boitoki
+// plotchar(lastQSHBar, 'lastQSHBar', ' ')
+// plotchar(lastQSLBar, 'lastQSLBar', ' ')
+
 
