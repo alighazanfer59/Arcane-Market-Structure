@@ -1209,8 +1209,7 @@ type Imbalance
 	// float middle
 	float close
     float fvg_tapped
-	// bool mitigated
-    string status  // "untapped", "tapped", "invalidated"
+    string status  // "untapped", "tapped", "invalidated", "first invalidation"
     int status_time
 	// int mitigated_time
 	line line_middle
@@ -1374,21 +1373,26 @@ method AddZone(ImbalanceStructure IS, Imbalance imb, int step, c_2) =>
         
         if imb.status == "tapped"
             if imb.isBullish 
-                if c_2 <= imb.fvg_tapped and c_2 >= display_open 
+                if low <= imb.fvg_tapped and low >= display_open
                     // For bullish FVG, adjust the bottom to the tap price
-                    display_close := math.min(imb.fvg_tapped, c_2)
+                    display_close := math.min(imb.fvg_tapped, low)
+                    imb.fvg_tapped := display_close
+                else if low <= display_open
+                    display_close := display_open
                     imb.fvg_tapped := display_close
                 else
-                    display_close := display_open 
-                    imb.fvg_tapped := display_open
+                    display_close := imb.fvg_tapped 
+                    // imb.fvg_tapped := display_open
             else if not imb.isBullish 
-                if c_2 >= imb.fvg_tapped and c_2 <= display_open 
+                if high >= imb.fvg_tapped and high <= display_open
                     // For bullish FVG, adjust the bottom to the tap price
-                    display_close := math.max(imb.fvg_tapped, c_2)
+                    display_close := math.max(imb.fvg_tapped, high)
+                    imb.fvg_tapped := display_close
+                else if high >=display_open
+                    display_close := display_open 
                     imb.fvg_tapped := display_close
                 else
-                    display_close := display_open 
-                    imb.fvg_tapped := display_open
+                    display_close := imb.fvg_tapped
         
         // Check if we should show based on status
         if (imb.status == "invalidated" and not settings.show_invalidated) or
@@ -1459,7 +1463,7 @@ method CheckStatus(ImbalanceStructure IS, float open, float high, float low, flo
                 continue
                 
             // Check if price has entered the FVG (tapped)
-            if imb.status == "untapped" and ((imb.isBullish and close < imb.close) or (not imb.isBullish and close > imb.close))
+            if imb.status == "untapped" and ((imb.isBullish and low < imb.close) or (not imb.isBullish and high > imb.close))
                 imb.status := "tapped"
                 imb.status_time := time
                 imb.fvg_tapped := close
@@ -1467,15 +1471,19 @@ method CheckStatus(ImbalanceStructure IS, float open, float high, float low, flo
             // Check for invalidation (two consecutive opposite candles)
             if imb.status != "invalidated"
                 if imb.isBullish
-                    // Two consecutive bearish candles closing below FVG
-                    if close < imb.open and open < close and 
-                       close[1] < imb.open and open[1] < close[1]
+                    // Two bearish candles closing above FVG
+                    if close < imb.open and open < close and imb.status != "first invalidation"
+                        imb.status := "first invalidation"
+                        imb.status_time := time
+                    else if close < imb.open and open < close and imb.status == "first invalidation"
                         imb.status := "invalidated"
                         imb.status_time := time
                 else
-                    // Two consecutive bullish candles closing above FVG
-                    if close > imb.open and open > close and 
-                       close[1] > imb.open and open[1] > close[1]
+                    // Two bullish candles closing above FVG
+                    if close > imb.open and open > close and imb.status != "first invalidation"
+                        imb.status := "first invalidation"
+                        imb.status_time := time
+                    else if close > imb.open and open > close and imb.status == "first invalidation"
                         imb.status := "invalidated"
                         imb.status_time := time
 
@@ -1526,9 +1534,9 @@ method Process(ImbalanceStructure IS, float o, float h, float l, float c, int t,
 daily := request.security(syminfo.tickerid, '1D', ta.atr(14))
 monthly := request.security(syminfo.tickerid, '1M', ta.atr(14))
 
-[o_2, h_2, l_2, c_2, t_2] = request.security(syminfo.tickerid, HTF, [open[1], high[1], low[1], close[1], time[1]])
-[o1_2, h1_2, l1_2, c1_2, t1_2] = request.security(syminfo.tickerid, HTF, [open[2], high[2], low[2], close[2], time[2]])
-[o2_2, h2_2, l2_2, c2_2, t2_2] = request.security(syminfo.tickerid, HTF, [open[3], high[3], low[3], close[3], time[3]])
+[o_2, h_2, l_2, c_2, t_2] = request.security(syminfo.tickerid, HTF, [open, high, low, close, time])
+[o1_2, h1_2, l1_2, c1_2, t1_2] = request.security(syminfo.tickerid, HTF, [open[1], high[1], low[1], close[1], time[1]])
+[o2_2, h2_2, l2_2, c2_2, t2_2] = request.security(syminfo.tickerid, HTF, [open[2], high[2], low[2], close[2], time[2]])
 TF_2 := TF_1 + FVG_2.Process(o_2, h_2, l_2, c_2, t_2, o1_2, h1_2, l1_2, c1_2, t1_2, o2_2, h2_2, l2_2, c2_2, t2_2)
 FVG_2.AdjustMargins(TF_2, c_2)
 
