@@ -9,7 +9,6 @@ type Settings
 	string CE_style
 	color CE_color
 	bool Border_show
-	bool invalidated_show
 	string invalidated_type
 	color invalidated_color_bull
 	color invalidated_color_bear
@@ -20,6 +19,9 @@ type Settings
 	string label_size
 	int padding
 	int buffer
+    bool show_invalidated
+    bool show_tapped
+    bool show_untapped
 
 type Imbalance_Settings
 	bool show
@@ -53,7 +55,6 @@ type Helper
 //+------------------------------------------------------------------------------------------------------------+//
 Settings settings = Settings.new()
 settings.Border_show := true
-settings.invalidated_show := true
 settings.invalidated_color_bull := color.new(color.gray, 95)
 settings.invalidated_color_bear := color.new(color.gray, 95)
 settings.invalidated_type := 'Body filled'
@@ -151,7 +152,13 @@ method ProximityRange(Helper helper, tf) =>
 //+------------------------------------------------------------------------------------------------------------+//
 //+--- Imbalances Methods                                                                                   ---+//
 //+------------------------------------------------------------------------------------------------------------+//
-/// AddZone is used to display and manage imbalance related boxes
+
+// AddZone is used to display and manage imbalance related boxes
+settings.show_invalidated := input.bool(false, "Show Invalidated FVGs", group = "FVG Settings")
+settings.show_tapped := input.bool(false, "Show Tapped FVGs", group = "FVG Settings")
+settings.show_untapped := input.bool(true, "Show Untapped FVGs", group = "FVG Settings")
+
+// AddZone is used to display and manage imbalance related boxes
 method AddZone(ImbalanceStructure IS, Imbalance imb, int step) =>
     bool visible = true
     if IS.settings.show
@@ -172,7 +179,13 @@ method AddZone(ImbalanceStructure IS, Imbalance imb, int step) =>
             imb.box := box.new(imb.open_time, imb.open, buffer, imb.close, settings.Border_show ? imb.open < imb.close ? color.new(bull_color, color.t(bull_color) / 3) : color.new(bear_color, color.t(bear_color) / 3) : color_transparent, settings.Border_show ? 1 : 0, bgcolor = imb.open < imb.close ? bull_color : bear_color, xloc = xloc.bar_time)
 
             if settings.label_show
-                imb.lbl := label.new(buffer, imb.middle, text = helper.Gethtftext(IS.settings.htf), xloc = xloc.bar_time, textcolor = settings.label_color, style = label.style_label_left, color = settings.label_bgcolor, size = settings.label_size)
+                imb.lbl := label.new(buffer, imb.middle, 
+                 text = helper.Gethtftext(IS.settings.htf) + "\n" + imb.status,
+                 xloc = xloc.bar_time, 
+                 textcolor = settings.label_color, 
+                 style = label.style_label_left, 
+                 color = settings.label_bgcolor, 
+                 size = settings.label_size)
                 imb.lbl
 
             if settings.CE_show
@@ -188,13 +201,22 @@ method AddZone(ImbalanceStructure IS, Imbalance imb, int step) =>
             if settings.CE_show
                 line.set_x2(imb.line_middle, imb.status == 'invalidated' ? imb.status_time : buffer)
 
-        if imb.status == 'invalidated' and not settings.invalidated_show
+        // Delete box if its status type is not allowed by user settings
+        bool should_hide =
+             (imb.status == 'invalidated' and not settings.show_invalidated) or
+             (imb.status == 'tapped' and not settings.show_tapped) or
+             (imb.status == 'untapped' and not settings.show_untapped)
+
+        if should_hide
             if not na(imb.box)
                 box.delete(imb.box)
+            if not na(imb.line_middle)
                 line.delete(imb.line_middle)
+            if not na(imb.lbl)
                 label.delete(imb.lbl)
             visible := false
             visible
+
     visible
 
 /// AddImbalance adds a newly discovered imbalance
@@ -223,6 +245,12 @@ method CheckStatus(ImbalanceStructure IS, o, h, l, c) =>
         for i = IS.imbalance.size() - 1 to 0 by 1
             imb = IS.imbalance.get(i)
 
+            // Check if FVG is older than 7 days
+            if time - imb.open_time > 7 * 24 * 60 * 60 * 1000
+                imb.status := "invalidated"
+                imb.status_time := time
+                continue
+
             // Skip if already invalidated
             if imb.status != 'invalidated'
                 // Check for wick fill (tapped condition)
@@ -245,7 +273,7 @@ method CheckStatus(ImbalanceStructure IS, o, h, l, c) =>
                     imb.status := 'invalidated'
                     imb.status_time := time
 
-                    if not settings.invalidated_show
+                    if not settings.show_invalidated
                         if not na(imb.box)
                             box.delete(imb.box)
                             line.delete(imb.line_middle)
@@ -256,6 +284,7 @@ method CheckStatus(ImbalanceStructure IS, o, h, l, c) =>
                     imb.status := 'tapped'
                     imb.status_time := time
     IS
+
 method AdjustMargins(ImbalanceStructure IS, int step) =>
     int count = 0
     if IS.imbalance.size() > 0
