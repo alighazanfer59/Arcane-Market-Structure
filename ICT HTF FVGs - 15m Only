@@ -42,6 +42,7 @@ type Imbalance
 	line line_middle
 	label lbl
 	box box
+    bool isBullish
 
 type ImbalanceStructure
 	array<Imbalance> imbalance
@@ -164,59 +165,55 @@ method AddZone(ImbalanceStructure IS, Imbalance imb, int step) =>
     if IS.settings.show
         int buffer = time + (time - time[1]) * (settings.padding + 1 + settings.buffer * (step - 1))
 
-        // Determine color based on status
-        color bull_color = switch imb.status
-            'untapped' => IS.settings.color_bull
-            'tapped' => color.new(color.orange, 90) // Orange for tapped
-            'invalidated' => settings.invalidated_color_bull
+        // Determine color based on status with transparency
+        color bgColor = color.gray
+        int transparency = 90
+        
+        if imb.status == "untapped"
+            bgColor := imb.isBullish ? color.green : color.red
+            transparency := 90
+        else if imb.status == "tapped"
+            bgColor := color.orange
+            transparency := 90
+        
+        color bgColorWithTransparency = color.new(bgColor, transparency)
 
-        color bear_color = switch imb.status
-            'untapped' => IS.settings.color_bear
-            'tapped' => color.new(color.orange, 90) // Orange for tapped
-            'invalidated' => settings.invalidated_color_bear
-
-        if na(imb.box)
-            imb.box := box.new(imb.open_time, imb.open, buffer, imb.close, settings.Border_show ? imb.open < imb.close ? color.new(bull_color, color.t(bull_color) / 3) : color.new(bear_color, color.t(bear_color) / 3) : color_transparent, settings.Border_show ? 1 : 0, bgcolor = imb.open < imb.close ? bull_color : bear_color, xloc = xloc.bar_time)
-
-            if settings.label_show
-                imb.lbl := label.new(buffer, imb.middle, 
-                 text = helper.Gethtftext(IS.settings.htf) + "\n" + imb.status,
-                 xloc = xloc.bar_time, 
-                 textcolor = settings.label_color, 
-                 style = label.style_label_left, 
-                 color = settings.label_bgcolor, 
-                 size = settings.label_size)
-                imb.lbl
-
-            if settings.CE_show
-                imb.line_middle := line.new(imb.open_time, imb.middle, buffer, imb.middle, xloc = xloc.bar_time, style = helper.LineStyle(settings.CE_style), color = settings.CE_color)
-                imb.line_middle
-        else
-            box.set_right(imb.box, imb.status == 'invalidated' ? imb.status_time : buffer)
-            box.set_bgcolor(imb.box, imb.open < imb.close ? bull_color : bear_color)
-            box.set_border_color(imb.box, settings.Border_show ? imb.open < imb.close ? color.new(bull_color, color.t(bull_color) / 3) : color.new(bear_color, color.t(bear_color) / 3) : color_transparent)
-
-            label.set_x(imb.lbl, imb.status == 'invalidated' ? imb.status_time : buffer)
-
-            if settings.CE_show
-                line.set_x2(imb.line_middle, imb.status == 'invalidated' ? imb.status_time : buffer)
-
-        // Delete box if its status type is not allowed by user settings
-        bool should_hide =
-             (imb.status == 'invalidated' and not settings.show_invalidated) or
-             (imb.status == 'tapped' and not settings.show_tapped) or
-             (imb.status == 'untapped' and not settings.show_untapped)
-
-        if should_hide
+        // Check if we should show based on status
+        if (imb.status == "invalidated" and not settings.show_invalidated) or
+           (imb.status == "tapped" and not settings.show_tapped) or
+           (imb.status == "untapped" and not settings.show_untapped)
             if not na(imb.box)
                 box.delete(imb.box)
-            if not na(imb.line_middle)
-                line.delete(imb.line_middle)
-            if not na(imb.lbl)
                 label.delete(imb.lbl)
             visible := false
-            visible
-
+        else
+            if na(imb.box)
+                // Create the box only once
+                imb.box := box.new(imb.open_time, imb.open, buffer, imb.close, 
+                     settings.Border_show ? color.new(bgColor, transparency / 2) : color_transparent, 
+                     settings.Border_show ? 1 : 0, 
+                     bgcolor = bgColorWithTransparency, 
+                     xloc = xloc.bar_time)
+                
+                if settings.label_show
+                    imb.lbl := label.new(buffer, (imb.open + imb.close) / 2, 
+                         text = helper.Gethtftext(IS.settings.htf) + "\n" + imb.status, 
+                         xloc = xloc.bar_time, 
+                         textcolor = settings.label_color, 
+                         style = label.style_label_left, 
+                         color = settings.label_bgcolor, 
+                         size = settings.label_size)
+            else
+                // Update existing box properties without changing its position
+                box.set_right(imb.box, buffer)
+                box.set_bgcolor(imb.box, bgColorWithTransparency)
+                box.set_border_color(imb.box, 
+                     settings.Border_show ? color.new(bgColor, transparency / 2) : color_transparent)
+                
+                if settings.label_show
+                    label.set_x(imb.lbl, buffer)
+                    label.set_y(imb.lbl, (imb.open + imb.close) / 2)
+                    label.set_text(imb.lbl, helper.Gethtftext(IS.settings.htf) + "\n" + imb.status)
     visible
 
 /// AddImbalance adds a newly discovered imbalance
@@ -228,7 +225,7 @@ method AddImbalance(ImbalanceStructure IS, float o, float c, int o_time) =>
     imb.close := c
     imb.status := 'untapped' // Initial status
     imb.invalidation_count  := 0           // Initialize invalidation count
-
+    imb.isBullish := o < c
     IS.imbalance.unshift(imb)
 
     if IS.imbalance.size() > 100
