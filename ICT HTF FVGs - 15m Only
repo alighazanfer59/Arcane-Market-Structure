@@ -1,0 +1,314 @@
+//@version=6
+indicator('ICT HTF FVGs - 15m Only', overlay = true, max_bars_back = 5000, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Types                                                                                                ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+type Settings
+	bool CE_show
+	string CE_style
+	color CE_color
+	bool Border_show
+	bool invalidated_show
+	string invalidated_type
+	color invalidated_color_bull
+	color invalidated_color_bear
+	bool ltf_hide
+	bool label_show
+	color label_color
+	color label_bgcolor
+	string label_size
+	int padding
+	int buffer
+
+type Imbalance_Settings
+	bool show
+	string htf
+	color color_bull
+	color color_bear
+	int max_count
+
+type Imbalance
+	int open_time
+	int close_time
+	float open
+	float middle
+	float close
+	string status // "untapped", "tapped", or "invalidated"
+    int     invalidation_count // Count of confirming candles for invalidation
+	int status_time
+	line line_middle
+	label lbl
+	box box
+
+type ImbalanceStructure
+	array<Imbalance> imbalance
+	Imbalance_Settings settings
+
+type Helper
+	string name = 'Helper'
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Settings (Hardcoded)                                                                                 ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+Settings settings = Settings.new()
+settings.Border_show := true
+settings.invalidated_show := true
+settings.invalidated_color_bull := color.new(color.gray, 95)
+settings.invalidated_color_bear := color.new(color.gray, 95)
+settings.invalidated_type := 'Body filled'
+settings.CE_show := true
+settings.CE_color := color.new(color.black, 60)
+settings.CE_style := '····'
+settings.ltf_hide := true
+settings.label_show := true
+settings.label_color := color.new(color.black, 10)
+settings.label_bgcolor := color.new(color.white, 100)
+settings.label_size := size.small
+settings.padding := 4
+settings.buffer := 6
+
+Imbalance_Settings HTF_Settings = Imbalance_Settings.new()
+HTF_Settings.show := true
+HTF_Settings.htf := '15'
+HTF_Settings.color_bull := color.new(color.green, 90)
+HTF_Settings.color_bear := color.new(color.red, 90)
+HTF_Settings.max_count := 20
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Variables                                                                                            ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+color color_transparent = #ffffff00
+
+Helper helper = Helper.new()
+
+var ImbalanceStructure FVG = ImbalanceStructure.new()
+var array<Imbalance> FVGs = array.new<Imbalance>()
+
+FVG.imbalance := FVGs
+FVG.settings := HTF_Settings
+
+var float daily = 0
+var float monthly = 0
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Methods                                                                                              ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+method LineStyle(Helper helper, string style) =>
+    helper.name := style
+
+    out = switch style
+        '----' => line.style_dashed
+        '····' => line.style_dotted
+        => line.style_solid
+
+    out
+
+method Gethtftext(Helper helper, string htf) =>
+    helper.name := htf
+
+    formatted = htf
+    seconds = timeframe.in_seconds(htf)
+
+    if seconds < 60
+        formatted := str.tostring(seconds) + 's'
+        formatted
+    else if seconds / 60 < 60
+        formatted := str.tostring(seconds / 60) + 'm'
+        formatted
+    else if seconds / 60 / 60 < 24
+        formatted := str.tostring(seconds / 60 / 60) + 'H'
+        formatted
+
+    formatted
+
+method Validtimeframe(Helper helper, tf) =>
+    helper.name := tf
+    n1 = timeframe.in_seconds()
+    n2 = timeframe.in_seconds(tf)
+
+    n1 < n2
+
+method ProximityRange(Helper helper, tf) =>
+    helper.name := tf
+    float range_high = 0
+    float range_low = 0
+    if timeframe.isseconds or timeframe.isminutes
+        range_high := close + daily
+        range_low := close - daily
+        range_low
+    if timeframe.isdaily
+        range_high := close + monthly * 3
+        range_low := close - monthly * 3
+        range_low
+    if timeframe.isweekly
+        range_high := close + monthly * 12
+        range_low := close - monthly * 12
+        range_low
+
+    [range_low, range_high]
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Imbalances Methods                                                                                   ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+/// AddZone is used to display and manage imbalance related boxes
+method AddZone(ImbalanceStructure IS, Imbalance imb, int step) =>
+    bool visible = true
+    if IS.settings.show
+        int buffer = time + (time - time[1]) * (settings.padding + 1 + settings.buffer * (step - 1))
+
+        // Determine color based on status
+        color bull_color = switch imb.status
+            'untapped' => IS.settings.color_bull
+            'tapped' => color.new(color.orange, 90) // Orange for tapped
+            'invalidated' => settings.invalidated_color_bull
+
+        color bear_color = switch imb.status
+            'untapped' => IS.settings.color_bear
+            'tapped' => color.new(color.orange, 90) // Orange for tapped
+            'invalidated' => settings.invalidated_color_bear
+
+        if na(imb.box)
+            imb.box := box.new(imb.open_time, imb.open, buffer, imb.close, settings.Border_show ? imb.open < imb.close ? color.new(bull_color, color.t(bull_color) / 3) : color.new(bear_color, color.t(bear_color) / 3) : color_transparent, settings.Border_show ? 1 : 0, bgcolor = imb.open < imb.close ? bull_color : bear_color, xloc = xloc.bar_time)
+
+            if settings.label_show
+                imb.lbl := label.new(buffer, imb.middle, text = helper.Gethtftext(IS.settings.htf), xloc = xloc.bar_time, textcolor = settings.label_color, style = label.style_label_left, color = settings.label_bgcolor, size = settings.label_size)
+                imb.lbl
+
+            if settings.CE_show
+                imb.line_middle := line.new(imb.open_time, imb.middle, buffer, imb.middle, xloc = xloc.bar_time, style = helper.LineStyle(settings.CE_style), color = settings.CE_color)
+                imb.line_middle
+        else
+            box.set_right(imb.box, imb.status == 'invalidated' ? imb.status_time : buffer)
+            box.set_bgcolor(imb.box, imb.open < imb.close ? bull_color : bear_color)
+            box.set_border_color(imb.box, settings.Border_show ? imb.open < imb.close ? color.new(bull_color, color.t(bull_color) / 3) : color.new(bear_color, color.t(bear_color) / 3) : color_transparent)
+
+            label.set_x(imb.lbl, imb.status == 'invalidated' ? imb.status_time : buffer)
+
+            if settings.CE_show
+                line.set_x2(imb.line_middle, imb.status == 'invalidated' ? imb.status_time : buffer)
+
+        if imb.status == 'invalidated' and not settings.invalidated_show
+            if not na(imb.box)
+                box.delete(imb.box)
+                line.delete(imb.line_middle)
+                label.delete(imb.lbl)
+            visible := false
+            visible
+    visible
+
+/// AddImbalance adds a newly discovered imbalance
+method AddImbalance(ImbalanceStructure IS, float o, float c, int o_time) =>
+    Imbalance imb = Imbalance.new()
+    imb.open_time := o_time
+    imb.open := o
+    imb.middle := (o + c) / 2
+    imb.close := c
+    imb.status := 'untapped' // Initial status
+    imb.invalidation_count  := 0           // Initialize invalidation count
+
+    IS.imbalance.unshift(imb)
+
+    if IS.imbalance.size() > 100
+        temp = IS.imbalance.pop()
+        if not na(temp.box)
+            box.delete(temp.box)
+            line.delete(temp.line_middle)
+            label.delete(temp.lbl)
+    IS
+
+// CheckStatus checks if the imbalance has been tapped or invalidated based on the settings
+method CheckStatus(ImbalanceStructure IS, o, h, l, c) =>
+    if IS.imbalance.size() > 0
+        for i = IS.imbalance.size() - 1 to 0 by 1
+            imb = IS.imbalance.get(i)
+
+            // Skip if already invalidated
+            if imb.status != 'invalidated'
+                // Check for wick fill (tapped condition)
+                wick_filled = imb.open <= imb.close ? low <= imb.close : high >= imb.close
+                
+                // Determine if current candle is bearish or bullish
+                isBearishCandle = c < o
+                isBullishCandle = c > o
+                
+                // For bullish FVG (imb.open < imb.close), check if we have a bearish candle closing below the FVG
+                if imb.open < imb.close and isBearishCandle and c < imb.open and c != c[1]
+                    imb.invalidation_count := imb.invalidation_count + 1
+                    
+                // For bearish FVG (imb.open > imb.close), check if we have a bullish candle closing above the FVG
+                else if imb.open > imb.close and isBullishCandle and c > imb.open and c != c[1]
+                    imb.invalidation_count := imb.invalidation_count + 1
+                
+                // Mark as invalidated if we have at least two confirming candles
+                if imb.invalidation_count >= 2
+                    imb.status := 'invalidated'
+                    imb.status_time := time
+
+                    if not settings.invalidated_show
+                        if not na(imb.box)
+                            box.delete(imb.box)
+                            line.delete(imb.line_middle)
+                            label.delete(imb.lbl)
+                        IS.imbalance.remove(i)
+                else if wick_filled and imb.status == 'untapped'
+                    // Mark as tapped if wick filled but not yet invalidated
+                    imb.status := 'tapped'
+                    imb.status_time := time
+    IS
+method AdjustMargins(ImbalanceStructure IS, int step) =>
+    int count = 0
+    if IS.imbalance.size() > 0
+        int buffer = time + (time - time[1]) * (settings.padding + 1 + settings.buffer * (step - 1))
+
+        [rl, rh] = helper.ProximityRange(IS.settings.htf)
+
+        for i = 0 to IS.imbalance.size() - 1 by 1
+            imb = IS.imbalance.get(i)
+            if math.max(imb.open, imb.close) > rl and math.min(imb.open, imb.close) < rh and count < IS.settings.max_count
+                if IS.AddZone(imb, step)
+                    count := count + 1
+                    count
+            else
+                if not na(imb.box)
+                    box.delete(imb.box)
+                    label.delete(imb.lbl)
+                    line.delete(imb.line_middle)
+    IS
+
+// FindImbalance looks for imbalances and, if found, adds it to the list
+method FindImbalance(ImbalanceStructure IS, o, h, l, c, t, o1, h1, l1, c1, t1, o2, h2, l2, c2, t2) =>
+    if IS.settings.show and (h < l2 or l > h2)
+        o = h < l2 ? l2 : h2
+        c = h < l2 ? h : l
+        if IS.imbalance.size() == 0
+            IS.AddImbalance(o, c, t2)
+        else
+            if IS.imbalance.first().open_time < t2
+                IS.AddImbalance(o, c, t2)
+    IS
+
+method Process(ImbalanceStructure IS, float o, float h, float l, float c, int t, float o1, float h1, float l1, float c1, int t1, float o2, float h2, float l2, float c2, int t2) =>
+    var int visible = 0
+    if IS.settings.show
+        if not settings.ltf_hide or settings.ltf_hide and helper.Validtimeframe(IS.settings.htf)
+            if IS.settings.show
+                IS.FindImbalance(o, h, l, c, t, o1, h1, l1, c1, t1, o2, h2, l2, c2, t2)
+                visible := 1
+                visible
+        IS.CheckStatus(o, h, l, c)
+    visible
+
+//+------------------------------------------------------------------------------------------------------------+//
+//+--- Main call to start the process                                                                       ---+//
+//+------------------------------------------------------------------------------------------------------------+//
+
+daily := request.security(syminfo.tickerid, '1D', ta.atr(14))
+monthly := request.security(syminfo.tickerid, '1M', ta.atr(14))
+
+[o_15m, h_15m, l_15m, c_15m, t_15m] = request.security(syminfo.tickerid, '15', [open[1], high[1], low[1], close[1], time[1]])
+[o1_15m, h1_15m, l1_15m, c1_15m, t1_15m] = request.security(syminfo.tickerid, '15', [open[2], high[2], low[2], close[2], time[2]])
+[o2_15m, h2_15m, l2_15m, c2_15m, t2_15m] = request.security(syminfo.tickerid, '15', [open[3], high[3], low[3], close[3], time[3]])
+
+visible = FVG.Process(o_15m, h_15m, l_15m, c_15m, t_15m, o1_15m, h1_15m, l1_15m, c1_15m, t1_15m, o2_15m, h2_15m, l2_15m, c2_15m, t2_15m)
+FVG.AdjustMargins(1) // Step is fixed to 1 since only one timeframe
